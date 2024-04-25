@@ -1,72 +1,90 @@
+#include <Arduino.h>
 #include <WiFi.h>
-#include <Wire.h>
+#include <FirebaseESP32.h> // Firebase library for ESP32
 #include <DHT.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h> // Library for I2C LCD
+LiquidCrystal_I2C lcd(0x27,16,2); // Initialize the LCD display
 
-#define DHTPIN 4
-#define DHTTYPE DHT11
+#define DHTPIN 15
+#define DHTTYPE    DHT11
+DHT_Unified dht(DHTPIN, DHTTYPE); // Initialize DHT sensor
 
-const char* ssid = "YourWiFiSSID";
-const char* password = "YourWiFiPassword";
-const char* host = "192.168.1.100"; // Raspberry Pi IP address
+/* Define the WiFi credentials */
+#define WIFI_SSID "PROJECT"
+#define WIFI_PASSWORD "123456789"
 
-DHT dht(DHTPIN, DHTTYPE);
+/* Define Firebase configuration */
+#define API_KEY "AIzaSyC5Q-66lWOj5kZCl1q7KvYD9ZO9pecFHkw"
+#define DATABASE_URL "https://test-d3894-default-rtdb.firebaseio.com"
+#define USER_EMAIL "mutants.400@gmail.com"
+#define USER_PASSWORD "Ro9710047880"
+
+// Define Firebase objects
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
+  lcd.init(); // Initialize the LCD display
+  lcd.backlight(); // Turn on the backlight
 
-  dht.begin();
-
-  WiFi.begin(ssid, password);
-
+  // Connect to WiFi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
     Serial.print(".");
+    delay(300);
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
+  Serial.println();
+  Serial.print("Connected with IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Initialize Firebase configuration
+  config.api_key = API_KEY;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  config.database_url = DATABASE_URL;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  // Initialize DHT sensor
+  dht.begin();
 }
 
 void loop() {
-  delay(2000);
+  delay(1000);
 
-  float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
+  // Read temperature and humidity from DHT sensor
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("TEMPERATURE");
+  lcd.setCursor(0,1);
+  lcd.print(event.temperature);
+  
+  // Send temperature data to Firebase
+  Firebase.setFloat(fbdo, F("/weather/temp"), event.temperature);
 
-  if (isnan(temperature) || isnan(humidity)) {
-    Serial.println("Failed to read from DHT sensor!");
-    return;
-  }
+  delay(1000);
 
-  Serial.print("Temperature: ");
-  Serial.print(temperature);
-  Serial.println(" °C");
-  Serial.print("Humidity: ");
-  Serial.print(humidity);
-  Serial.println(" %");
+  dht.humidity().getEvent(&event);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("HUMIDITY");
+  lcd.setCursor(0,1);
+  lcd.print(event.relative_humidity);
+  
+  // Send humidity data to Firebase
+  Firebase.setFloat(fbdo, F("/weather/hum"), event.relative_humidity);
 
-  WiFiClient client;
+  delay(1000);
 
-  if (!client.connect(host, 80)) {
-    Serial.println("Connection failed");
-    return;
-  }
-
-  String url = "/update?temp=" + String(temperature) + "&hum=" + String(humidity);
-  Serial.print("Requesting URL: ");
-  Serial.println(url);
-
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + host + "\r\n" +
-               "Connection: close\r\n\r\n");
-
-  delay(500);
-
-  while (client.available()) {
-    String line = client.readStringUntil('\r');
-    Serial.print(line);
-  }
-
-  Serial.println();
-  Serial.println("Closing connection");
+  // Read rain sensor data
+  int iVal = analogRead(2);
+  
+  // Send rain sensor data to Firebase
+  Firebase.setInt(fbdo, F("/weather/rain"), iVal);
 }
